@@ -194,12 +194,10 @@ Evidencias de tres ejecuciones con datos distintos en `evidencia/` (ejecución e
 ├── n8n/
 │   └── flujo_epp.json
 ├── resultados/
-│   ├── metricas_por_clase.csv
-│   ├── comparacion_test.csv
-│   └── matriz_confusion_*.png
-├── evidencia/
-└── docs/
-    └── informe.pdf
+    ├── metricas_por_clase.csv
+    ├── comparacion_test.csv
+    └── matriz_confusion_*.png
+
 ```
 
 ## 10. Cómo reproducir
@@ -225,11 +223,32 @@ Semilla fija: `2026`.
 
 ## 12. Limitaciones
 
-- mAP50 de 50,7 % en validación; `safety-vest` y `helmet` son las clases críticas con menor desempeño.
-- Que el modelo no detecte un EPP no demuestra que falte (oclusión, ángulo, resolución).
-- Reglas por zona sin validación profesional.
-- Entrenamiento detenido en la época 22; se espera mejora con más épocas y datos de faena real.
-- Plan gratuito de Render: latencia y límites de memoria.
+**Alcance del sistema**
+
+- Está configurado para una zona operativa superficial de una faena minera con tránsito de maquinaria, y solo evalúa **casco y chaleco de alta visibilidad**. En otras áreas pueden requerirse guantes, botas de seguridad, mascarillas u otros elementos que quedan fuera de esta evaluación.
+- Las reglas por zona son una **matriz simplificada de carácter académico**. Deben ser validadas por un profesional de prevención de riesgos antes de cualquier uso real.
+
+**Modelo de detección**
+
+- Rendimiento moderado en validación: mAP50 de 50,7 %. Las dos clases críticas para el caso son las más débiles: `helmet` (0,69) y `safety-vest` (0,49).
+- En la prueba de chalecos (810 imágenes, solo 22 positivas), YOLOv8n superó al baseline HSV (F1 0,526 vs 0,062), pero su **recall fue de 45,5 %**: no identificó 12 de los 22 casos. Con tan pocos positivos, las cifras tienen alta variabilidad.
+- Se observaron dificultades para reconocer **cascos azules y chalecos oscuros**. Probablemente se debe a que en las fotografías de entrenamiento predominan los colores más habituales de estos elementos. En esos casos, el sistema puede registrar un EPP como «no confirmado» aunque el trabajador lo esté usando.
+- El entrenamiento se detuvo tras completar 22 de las 50 épocas planificadas, por el costo computacional de retomarlo. Es probable que con más épocas el modelo mejore.
+- El dataset SH17 reúne fotografías de stock (Pexels), no imágenes de una faena real. El desempeño puede variar con otras cámaras, ángulos, distancias o condiciones de iluminación, y algunas clases minoritarias tienen pocos ejemplos en validación y prueba.
+
+**Interpretación de los resultados**
+
+- Que un EPP no sea detectado **no demuestra que falte** (oclusión, ángulo, resolución). Por eso el sistema lo informa como «no confirmado» y nunca como incumplimiento.
+- La comparación con el baseline mide presencia de chaleco por fotografía, no su localización por trabajador ni el mAP de las 17 clases.
+
+**IA generativa**
+
+- Gemini recibe solo los resultados estructurados y puede redactar recomendaciones imprecisas. Para reducir ese riesgo se fijó una temperatura baja, un límite de salida y reglas explícitas en el prompt. Aun así, el informe es un apoyo y **la decisión final es del personal encargado**.
+
+**Infraestructura**
+
+- El servicio se aloja en el plan gratuito de Render, con latencia y límites de memoria: la primera solicitud tras un período de inactividad puede tardar.
+- Los tiempos de procesamiento se midieron en Google Colab y son solo referenciales.
 
 ## 13. Declaración de uso de IA
 
@@ -239,7 +258,7 @@ Se usaron asistentes de IA, como permiten las reglas del curso. El equipo revis�
 |---|---|
 | **ChatGPT (OpenAI)** | Estructura inicial del proyecto y apoyo en otras partes del trabajo. |
 | **Gemini (Google)** | Apoyo en la parte del flujo de automatización y en las recomendaciones. También es el LLM del sistema (informe en JSON). |
-| **Claude (Anthropic)** | Redacción de este README. |
+| **Claude (Anthropic)** | Redacción inicial del README. |
 
 Los datos de prueba provienen de un dataset público (SH17); no se usaron datos simulados.
 
