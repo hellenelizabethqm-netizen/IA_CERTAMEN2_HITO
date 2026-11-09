@@ -1,0 +1,725 @@
+{
+  "name": "Certamen 2 - Monitoreo inteligente de EPP",
+  "nodes": [
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "\nsalidas = []\n\nfor indice, elemento in enumerate(_items):\n    datos = elemento.get(\"json\", {})\n\n    # 1. Recuperar los datos del formulario\n    zona = datos.get(\"Zona de trabajo\")\n    supervisor = datos.get(\"Identificador del supervisor\")\n\n    # 2. Validar la zona y el supervisor\n    if zona != \"zona_operativa\":\n        raise ValueError(\"Zona de trabajo no válida.\")\n\n    if not str(supervisor or \"\").strip():\n        raise ValueError(\"Falta el identificador del supervisor.\")\n\n    # 3. Comprobar que se recibió una sola imagen\n    binarios = elemento.get(\"binary\") or {}\n\n    if len(binarios) != 1:\n        raise ValueError(\"Debe recibirse exactamente una imagen.\")\n\n    clave_imagen = next(iter(binarios))\n    imagen = binarios[clave_imagen]\n\n    # 4. Validar el formato de imagen\n    formatos_permitidos = [\n        \"image/jpeg\",\n        \"image/png\",\n        \"image/webp\"\n    ]\n\n    if imagen.get(\"mimeType\") not in formatos_permitidos:\n        raise ValueError(\"Formato de imagen no permitido.\")\n\n    # 5. Revisar el tamaño máximo de 5 MB\n    archivo_formulario = datos.get(\"Fotografía de la zona\")\n    tamano = None\n\n    if isinstance(archivo_formulario, list) and archivo_formulario:\n        primero = archivo_formulario[0]\n\n        if isinstance(primero, dict):\n            tamano = primero.get(\"size\")\n\n    if isinstance(tamano, (int, float)) and tamano > 5 * 1024 * 1024:\n        raise ValueError(\"La imagen supera los 5 MB.\")\n\n    # 6. Preparar la salida para YOLO\n    salidas.append({\n        \"json\": {\n            \"zona_id\": zona,\n            \"supervisor\": str(supervisor).strip(),\n            \"imagen_nombre\": imagen.get(\"fileName\"),\n            \"imagen_tipo\": imagen.get(\"mimeType\"),\n            \"imagen_bytes\": tamano,\n            \"fecha_envio\": datos.get(\"submittedAt\"),\n            \"estado\": \"entrada_validada\"\n        },\n\n        # Mantener la imagen para el nodo HTTP\n        \"binary\": {\n            \"imagen\": imagen\n        },\n\n        \"pairedItem\": {\n            \"item\": indice\n        }\n    })\n\nreturn salidas\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        32
+      ],
+      "id": "740fa5b9-3778-4817-81e7-325bd21921d9",
+      "name": "Validar entrada EPP"
+    },
+    {
+      "parameters": {
+        "formTitle": "Sistema de monitoreo inteligente de EPP",
+        "formDescription": "Ingrese una fotografía del entorno de trabajo y seleccione al supervisor responsable. El sistema analizará la imagen mediante inteligencia artificial para identificar trabajadores y elementos de protección personal (EPP), generando un diagnostico con hallazgos y recomendaciones para su revisión.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Fotografía de la zona",
+              "fieldType": "file",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Zona de trabajo",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "zona_operativa"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Identificador del supervisor",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Catalina Cornejo"
+                  },
+                  {
+                    "option": "Hellen Quiñones"
+                  },
+                  {
+                    "option": "Gustavo Sánchez"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        96,
+        32
+      ],
+      "id": "54f0ba1d-23a6-49e5-b933-6d0afbf14cfd",
+      "name": "Formulario",
+      "webhookId": "3677d634-7389-4759-8c49-c071a9eb33fd"
+    },
+    {
+      "parameters": {
+        "method": "=POST",
+        "url": "https://certamen2-epp-api.onrender.com/analizar",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "imagen",
+              "inputDataFieldName": "imagen"
+            },
+            {
+              "name": "zona_id",
+              "value": "={{ $json.zona_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        32
+      ],
+      "id": "b07032f1-63d4-4d09-9e2d-be95b1ad67e3",
+      "name": "Detectar EPP con YOLO (HTTP)",
+      "retryOnFail": true,
+      "waitBetweenTries": 1000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "Jrk07DP3Dpcks4ro",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.1-flash-lite",
+          "mode": "list",
+          "cachedResultName": "Gemini 3.1 Flash Lite",
+          "cachedResultUrl": ""
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.prompt_gemini }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {
+          "maxOutputTokens": 350,
+          "candidateCount": 1,
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        256
+      ],
+      "id": "aeb789b8-7698-4412-bb89-50a3d619e385",
+      "name": "Generar informe EPP con Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "\n# Validar el informe de Gemini y preparar la salida final\n\nsalidas = []\n\nfor indice, elemento in enumerate(_items):\n\n    datos = elemento.get(\"json\", {})\n    informe = datos.get(\"informe\")\n    anterior = datos.get(\"anterior\")\n\n    # 1. Comprobar que llegaron los datos necesarios\n    if not isinstance(informe, dict):\n        raise ValueError(\"Gemini no devolvió un objeto JSON válido.\")\n\n    if not isinstance(anterior, dict):\n        raise ValueError(\"No se recuperaron los datos de la inspección.\")\n\n    # 2. Validar los cuatro campos obligatorios de Gemini\n    campos = [\n        \"diagnostico\",\n        \"recomendacion\",\n        \"prioridad\",\n        \"justificacion\"\n    ]\n\n    for campo in campos:\n        valor = informe.get(campo)\n\n        if not isinstance(valor, str) or not valor.strip():\n            raise ValueError(\n                \"Campo obligatorio inválido: \" + campo\n            )\n\n        informe[campo] = valor.strip()\n\n    # 3. Comprobar la prioridad\n    if informe[\"prioridad\"] not in [\"alta\", \"media\", \"baja\"]:\n        raise ValueError(\"Prioridad inválida.\")\n\n    # 4. Recuperar los resultados originales de YOLO\n    yolo = anterior.get(\"resultado_yolo\")\n\n    if not isinstance(yolo, dict):\n        raise ValueError(\"Faltan los resultados originales de YOLO.\")\n\n    resumen = yolo.get(\"resumen\") or {}\n\n    if \"requieren_revision\" not in resumen:\n        raise ValueError(\n            \"Falta el resumen de trabajadores que requieren revisión.\"\n        )\n\n    # 5. Consolidar la inspección para Gmail, Telegram y Sheets\n    salidas.append({\n        \"json\": {\n            \"fecha_inspeccion\": anterior.get(\"fecha_envio\"),\n            \"fecha_procesamiento\": datos.get(\"fecha_procesamiento\"),\n\n            \"supervisor\": anterior.get(\"supervisor\"),\n            \"imagen_nombre\": anterior.get(\"imagen_nombre\"),\n\n            \"zona_id\": yolo.get(\"zona_id\"),\n            \"zona\": yolo.get(\"zona\"),\n            \"reglas_validadas\": yolo.get(\"reglas_validadas\"),\n\n            \"modelo_vision\": yolo.get(\"modelo\"),\n            \"modelo_llm\": \"gemini-3.1-flash-lite\",\n\n            \"cantidad_trabajadores\": yolo.get(\n                \"cantidad_trabajadores\"\n            ),\n            \"trabajadores\": yolo.get(\"trabajadores\"),\n            \"trabajadores_revision\": resumen[\"requieren_revision\"],\n\n            \"informe_llm\": {\n                \"diagnostico\": informe[\"diagnostico\"],\n                \"recomendacion\": informe[\"recomendacion\"],\n                \"prioridad\": informe[\"prioridad\"],\n                \"justificacion\": informe[\"justificacion\"]\n            },\n\n            \"revision_humana\": {\n                \"requerida\": True,\n                \"estado\": \"pendiente\"\n            },\n\n            \"advertencia\": yolo.get(\"advertencia\"),\n            \"estado_flujo\": \"informe_generado\"\n        },\n\n        \"pairedItem\": {\n            \"item\": indice\n        }\n    })\n\nreturn salidas\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        256
+      ],
+      "id": "bb17902d-8857-41b0-9bd6-a161cc3df8a0",
+      "name": "Validar informe final EPP"
+    },
+    {
+      "parameters": {
+        "language": "pythonNative",
+        "pythonCode": "\n# Preparar los resultados de YOLO para Gemini\n\nsalidas = []\n\n# Convertir datos de Python a texto JSON sin bibliotecas externas\ndef convertir_json(valor):\n    if valor is None:\n        return \"null\"\n\n    if isinstance(valor, bool):\n        return \"true\" if valor else \"false\"\n\n    if isinstance(valor, str):\n        caracteres = []\n        for caracter in valor:\n            if caracter == '\"':\n                caracteres.append('\\\\\"')\n            elif caracter == \"\\\\\":\n                caracteres.append(\"\\\\\\\\\")\n            elif ord(caracter) < 32:\n                caracteres.append(\"\\\\u%04x\" % ord(caracter))\n            else:\n                caracteres.append(caracter)\n        return '\"' + \"\".join(caracteres) + '\"'\n\n    if isinstance(valor, (int, float)):\n        return str(valor)\n\n    if isinstance(valor, list):\n        return \"[\" + \",\".join(\n            convertir_json(v) for v in valor\n        ) + \"]\"\n\n    if isinstance(valor, dict):\n        return \"{\" + \",\".join(\n            convertir_json(str(k)) + \":\" + convertir_json(v)\n            for k, v in valor.items()\n        ) + \"}\"\n\n    return convertir_json(str(valor))\n\n\nfor indice, elemento in enumerate(_items):\n\n    datos = elemento.get(\"json\", {})\n\n    # 1. Recuperar información del formulario\n    supervisor = datos.get(\"supervisor\")\n    imagen_nombre = datos.get(\"imagen_nombre\")\n    fecha_envio = datos.get(\"fecha_envio\")\n\n    if not supervisor or not imagen_nombre or not fecha_envio:\n        raise ValueError(\"Faltan datos del formulario.\")\n\n    # 2. Separar los resultados originales de YOLO\n    yolo = {\n        clave: valor\n        for clave, valor in datos.items()\n        if clave not in [\n            \"supervisor\",\n            \"imagen_nombre\",\n            \"fecha_envio\"\n        ]\n    }\n\n    # 3. Verificar que YOLO entregó resultados válidos\n    if (\n        not isinstance(yolo.get(\"trabajadores\"), list)\n        or not isinstance(yolo.get(\"epp_requeridos\"), list)\n    ):\n        raise ValueError(\"La respuesta de YOLO está incompleta.\")\n\n    # 4. Resumir los EPP de cada trabajador\n    trabajadores = []\n\n    for t in yolo[\"trabajadores\"]:\n        trabajadores.append({\n            \"id\": t.get(\"persona_id\"),\n            \"epp_confirmados\": list(\n                (t.get(\"epp_detectados\") or {}).keys()\n            ),\n            \"epp_no_confirmados\": t.get(\n                \"epp_no_confirmados\"\n            ) or []\n        })\n\n    # 5. Preparar los datos que recibirá Gemini\n    entrada_llm = {\n        \"zona\": yolo.get(\"zona\"),\n        \"reglas_academicas\": not yolo.get(\"reglas_validadas\"),\n        \"epp_requeridos\": yolo[\"epp_requeridos\"],\n        \"trabajadores_detectados\": yolo.get(\n            \"cantidad_trabajadores\"\n        ),\n        \"trabajadores\": trabajadores\n    }\n\n    # 6. Instrucciones originales para Gemini\n    instrucciones = \"\"\"\nEres un asistente de prevención de riesgos.\n\nInterpreta exclusivamente los resultados proporcionados.\n\nReglas:\n- No afirmes que un EPP está ausente si no fue detectado.\n- No declares incumplimientos confirmados.\n- Las reglas de zona son académicas.\n- No inventes leyes ni hechos observados.\n- El nombre de la zona no demuestra que haya maquinaria visible.\n- Recomienda revisión humana ante incertidumbre.\n- La prioridad refleja urgencia de revisión, no infracción.\n- Máximo 70 palabras en total.\n\nResponde SOLO con un objeto JSON válido que contenga:\n\"diagnostico\": texto breve,\n\"recomendacion\": acción concreta,\n\"prioridad\": \"alta\", \"media\" o \"baja\",\n\"justificacion\": razón breve.\n\"\"\"\n\n    # 7. Unir instrucciones y datos\n    prompt_gemini = (\n        instrucciones\n        + \"\\nDATOS:\\n\"\n        + convertir_json(entrada_llm)\n    )\n\n    # 8. Conservar los datos para los siguientes nodos\n    salidas.append({\n        \"json\": {\n            \"supervisor\": supervisor,\n            \"imagen_nombre\": imagen_nombre,\n            \"fecha_envio\": fecha_envio,\n            \"resultado_yolo\": yolo,\n            \"entrada_llm\": entrada_llm,\n            \"prompt_gemini\": prompt_gemini,\n            \"estado_flujo\": \"pendiente_gemini\"\n        },\n        \"pairedItem\": {\n            \"item\": indice\n        }\n    })\n\nreturn salidas\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        256
+      ],
+      "id": "669b7d91-4cf6-4eb5-b1f1-6e3cd7fc138f",
+      "name": "Preparar informe Gemini"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ ({\n  \"Catalina Cornejo\": \"ccornejod@udd.cl\",\n  \"Hellen Quiñones\": \"hquinonesm@udd.cl\",\n  \"Gustavo Sánchez\": \"gsanchezy@udd.cl\"\n})[$json.supervisor] }}",
+        "subject": "={{ `ALERTA EPP [${$json.informe_llm.prioridad.toUpperCase()}] - ${$json.zona}` }}",
+        "message": "=\n{{ (() => {\n  const d = $json;\n  const i = d.informe_llm;\n  const trabajadores = Array.isArray(d.trabajadores) ? d.trabajadores : [];\n\n  const seguro = (valor) =>\n    String(valor ?? \"\")\n      .replace(/&/g, \"&amp;\")\n      .replace(/</g, \"&lt;\")\n      .replace(/>/g, \"&gt;\")\n      .replace(/\"/g, \"&quot;\")\n      .replace(/'/g, \"&#39;\");\n\n  const cascoNoDetectado = trabajadores.filter(t =>\n    (t.epp_no_confirmados || []).includes(\"helmet\")\n  ).length;\n\n  const chalecoNoDetectado = trabajadores.filter(t =>\n    (t.epp_no_confirmados || []).includes(\"safety-vest\")\n  ).length;\n\n  const trabajadoresConCasco = trabajadores.filter(t =>\n    Object.keys(t.epp_detectados || {}).includes(\"helmet\")\n  ).length;\n\n  const trabajadoresConChaleco = trabajadores.filter(t =>\n    Object.keys(t.epp_detectados || {}).includes(\"safety-vest\")\n  ).length;\n\n  return `\n  <div style=\"font-family:Arial,Helvetica,sans-serif;background-color:#f4f6f8;padding:24px 12px;color:#253044;\">\n    <table cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;\">\n      \n      <tr>\n        <td style=\"background:#17324f;padding:28px 30px;color:#ffffff;\">\n          <h1 style=\"font-size:26px;margin:0 0 8px 0;color:#ffffff;\">👷 Informe de inspección de EPP</h1>\n          <p style=\"font-size:13px;margin:0;color:#d5e3ef;\">\n            Sistema automatizado de monitoreo de seguridad\n          </p>\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"padding:28px 30px;\">\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 16px;\">📌 Resumen de hallazgos</h2>\n\n          <table cellpadding=\"10\" cellspacing=\"0\" style=\"width:100%;margin-bottom:24px;\">\n            <tr>\n              <td style=\"width:50%;padding:8px;\">\n                <div style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;text-align:center;\">\n                  <div style=\"font-size:12px;color:#64748b;\">👥 Trabajadores detectados</div>\n                  <div style=\"font-size:28px;font-weight:bold;color:#17324f;\">${seguro(d.cantidad_trabajadores)}</div>\n                </div>\n              </td>\n              <td style=\"width:50%;padding:8px;\">\n                <div style=\"background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:16px;text-align:center;\">\n                  <div style=\"font-size:12px;color:#9a3412;\">⚠️ Requieren revisión</div>\n                  <div style=\"font-size:28px;font-weight:bold;color:#b45309;\">${seguro(d.trabajadores_revision)}</div>\n                </div>\n              </td>\n            </tr>\n            <tr>\n              <td style=\"width:50%;padding:8px;\">\n                <div style=\"background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:16px;text-align:center;\">\n                  <div style=\"font-size:12px;color:#991b1b;\">⛑️ Casco no detectado</div>\n                  <div style=\"font-size:28px;font-weight:bold;color:#b91c1c;\">${seguro(cascoNoDetectado)}</div>\n                  <div style=\"font-size:11px;color:#7f1d1d;margin-top:4px;\">\n                    Detectados: ${seguro(trabajadoresConCasco)}\n                  </div>\n                </div>\n              </td>\n              <td style=\"width:50%;padding:8px;\">\n                <div style=\"background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px;text-align:center;\">\n                  <div style=\"font-size:12px;color:#1d4ed8;\">🦺 Chaleco no detectado</div>\n                  <div style=\"font-size:28px;font-weight:bold;color:#2563eb;\">${seguro(chalecoNoDetectado)}</div>\n                  <div style=\"font-size:11px;color:#1e40af;margin-top:4px;\">\n                    Detectados: ${seguro(trabajadoresConChaleco)}\n                  </div>\n                </div>\n              </td>\n            </tr>\n          </table>\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 14px;\">📝 Información de la inspección</h2>\n\n          <p style=\"font-size:14px;line-height:1.8;margin:0 0 24px;\">\n            <strong>Zona evaluada:</strong> ${seguro(d.zona)}<br>\n            <strong>Fecha de inspección:</strong> ${seguro(d.fecha_inspeccion)}<br>\n            <strong>Imagen:</strong> ${seguro(d.imagen_nombre)}<br>\n            <strong>Prioridad de revisión:</strong>\n            <span style=\"color:#b42318;font-weight:bold;\">${seguro(i.prioridad).toUpperCase()}</span>\n          </p>\n\n          <hr style=\"border:0;border-top:1px solid #e2e8f0;margin:24px 0;\">\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 10px;\">🔎 Diagnóstico</h2>\n          <p style=\"font-size:14px;line-height:1.8;margin:0 0 22px;\">\n            ${seguro(i.diagnostico)}\n          </p>\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 10px;\">✅ Recomendación</h2>\n          <p style=\"font-size:14px;line-height:1.8;margin:0 0 22px;\">\n            ${seguro(i.recomendacion)}\n          </p>\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 10px;\">📚 Justificación</h2>\n          <p style=\"font-size:14px;line-height:1.8;margin:0 0 22px;\">\n            ${seguro(i.justificacion)}\n          </p>\n\n          <h2 style=\"font-size:17px;color:#17324f;margin:0 0 10px;\">🚦 Estado de la inspección</h2>\n          <p style=\"font-size:14px;font-weight:bold;margin:0 0 10px;color:#7a271a;\">\n            REVISIÓN HUMANA PENDIENTE\n          </p>\n\n          <div style=\"background:#f8fafc;border-left:4px solid #94a3b8;padding:14px 16px;margin-top:14px;border-radius:6px;\">\n            <p style=\"font-size:12px;line-height:1.7;color:#475569;margin:0;\">\n              <strong>Advertencia:</strong> ${seguro(d.advertencia)}\n            </p>\n          </div>\n\n        </td>\n      </tr>\n\n      <tr>\n        <td style=\"background:#f4f6f8;padding:18px 30px;text-align:center;\">\n          <p style=\"font-size:12px;color:#64748b;line-height:1.7;margin:0;\">\n            Informe generado automáticamente mediante YOLOv8n, reglas de seguridad en Python y Gemini.<br>\n            Documento de apoyo académico. No constituye una certificación de cumplimiento.\n          </p>\n        </td>\n      </tr>\n\n    </table>\n  </div>\n  `;\n})() }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        112,
+        448
+      ],
+      "id": "eeb3189c-25ee-4146-bc62-6c624e99ff68",
+      "name": "Enviar alerta EPP Gmail",
+      "webhookId": "dd74ce3a-886e-4bcc-9133-0f8817f8016e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "N5rfvVN7mbnh77VK",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1560634413",
+        "text": "={{ (() => {\n  const d = $json;\n  const i = d.informe_llm;\n  const trabajadores = d.trabajadores || [];\n\n  const seguro = (valor) =>\n    String(valor ?? \"\")\n      .replace(/&/g, \"&amp;\")\n      .replace(/</g, \"&lt;\")\n      .replace(/>/g, \"&gt;\")\n      .replace(/\"/g, \"&quot;\")\n      .replace(/'/g, \"&#39;\");\n\n  const cascos = trabajadores.filter(t =>\n    (t.epp_no_confirmados || []).includes(\"helmet\")\n  ).length;\n\n  const chalecos = trabajadores.filter(t =>\n    (t.epp_no_confirmados || []).includes(\"safety-vest\")\n  ).length;\n\n  const fecha = new Date(d.fecha_inspeccion)\n    .toLocaleString(\"es-CL\", {\n      timeZone: \"America/Santiago\",\n      dateStyle: \"short\",\n      timeStyle: \"short\"\n    });\n\n  return `🚨 <b>ALERTA DE INSPECCIÓN EPP</b>\n\n📍 <b>Zona:</b> ${seguro(d.zona)}\n📅 <b>Fecha:</b> ${seguro(fecha)}\n\n<b>📊 RESUMEN DE HALLAZGOS</b>\n\n👷 Trabajadores detectados: <b>${d.cantidad_trabajadores}</b>\n⚠️ Requieren revisión: <b>${d.trabajadores_revision}</b>\n⛑️ Cascos no confirmados: <b>${cascos}</b>\n🦺 Chalecos no confirmados: <b>${chalecos}</b>\n\n🚨 <b>Prioridad: ${seguro(i.prioridad).toUpperCase()}</b>\n\n<b>🔎 DIAGNÓSTICO</b>\n${seguro(i.diagnostico)}\n\n<b>✅ RECOMENDACIÓN</b>\n${seguro(i.recomendacion)}\n\n<b>📋 ESTADO</b>\nRevisión humana pendiente.\n\n<i>Los EPP no confirmados no implican necesariamente ausencia o incumplimiento. Evaluación académica sujeta a revisión profesional.</i>`;\n})() }}",
+        "replyMarkup": "=none",
+        "forceReply": {},
+        "replyKeyboardOptions": {},
+        "replyKeyboardRemove": {},
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        336,
+        448
+      ],
+      "id": "bcd2d216-321e-4938-bc38-39039d76d807",
+      "name": "Enviar alerta EPP Telegram",
+      "webhookId": "f59d4658-7187-41d6-b733-2741a53d2496",
+      "credentials": {
+        "telegramApi": {
+          "id": "yJ6eO6C2XgY8vD9L",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1Zalq02fgcOmTpXPYzrO_L_FosKBIbRomh0KZmy0m8jE",
+          "mode": "list",
+          "cachedResultName": "Historial de Inspecciones EPP - Certamen 2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Zalq02fgcOmTpXPYzrO_L_FosKBIbRomh0KZmy0m8jE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Inspecciones",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Zalq02fgcOmTpXPYzrO_L_FosKBIbRomh0KZmy0m8jE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_inspeccion": "={{ $execution.id }}",
+            "fecha_inspeccion": "={{ $json.fecha_inspeccion }}",
+            "zona": "={{ $json.zona }}",
+            "supervisor": "={{ $json.supervisor }}",
+            "imagen": "=\t{{ $json.imagen_nombre }}",
+            "trabajadores_detectados": "={{ $json.cantidad_trabajadores }}",
+            "requieren_revision": "={{ $json.trabajadores_revision }}",
+            "cascos_no_confirmados": "={{ $json.trabajadores.filter(t => t.epp_no_confirmados.includes('helmet')).length }}",
+            "chalecos_no_confirmados": "={{ $json.trabajadores.filter(t => t.epp_no_confirmados.includes('safety-vest')).length }}",
+            "prioridad": "={{ $json.informe_llm.prioridad }}",
+            "diagnostico": "={{ $json.informe_llm.diagnostico }}",
+            "justificacion": "={{ $json.informe_llm.justificacion }}",
+            "recomendacion": "={{ $json.informe_llm.recomendacion }}",
+            "estado_revision": "={{ $json.revision_humana.estado }}",
+            "reglas_validadas": "=\t{{ $json.reglas_validadas }}",
+            "detalle_trabajadores": "={{ JSON.stringify($json.trabajadores) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id_inspeccion",
+              "displayName": "id_inspeccion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha_inspeccion",
+              "displayName": "fecha_inspeccion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "zona",
+              "displayName": "zona",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "supervisor",
+              "displayName": "supervisor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "imagen",
+              "displayName": "imagen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "trabajadores_detectados",
+              "displayName": "trabajadores_detectados",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "requieren_revision",
+              "displayName": "requieren_revision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "cascos_no_confirmados",
+              "displayName": "cascos_no_confirmados",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chalecos_no_confirmados",
+              "displayName": "chalecos_no_confirmados",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "prioridad",
+              "displayName": "prioridad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "diagnostico",
+              "displayName": "diagnostico",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recomendacion",
+              "displayName": "recomendacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "justificacion",
+              "displayName": "justificacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "estado_revision",
+              "displayName": "estado_revision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reglas_validadas",
+              "displayName": "reglas_validadas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "detalle_trabajadores",
+              "displayName": "detalle_trabajadores",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ok",
+              "displayName": "ok",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "result",
+              "displayName": "result",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        592,
+        448
+      ],
+      "id": "948781ca-8d1c-4921-8659-c6edb65e2438",
+      "name": "Registrar inspección en Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "40gswSUaL1PaVyGY",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "##### 1. Entrada y validación",
+        "height": 208,
+        "width": 480,
+        "color": "#EBEBEB"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "cbc22062-f812-4580-893c-cc30b41f8293",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "##### 2. Detección de EPP con IA (YOLO)",
+        "height": 208,
+        "width": 304,
+        "color": "#E3E3E3"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "69cf394f-c06c-46b0-8808-2fe447e8457d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "##### 3. Generación y validación del informe",
+        "height": 192,
+        "width": 784,
+        "color": "#D6D6D6"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "5756b4c7-a0ff-451e-b1db-0c293cd25aa3",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "##### 4. Envío de alertas y registro",
+        "height": 240,
+        "width": 784,
+        "color": "#B8B7B7"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "a410f57b-f9e1-4684-898e-953a04068c2e",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "91cc0bed-5efc-400a-a132-8092c9412411",
+              "name": "supervisor",
+              "value": "={{ $('Validar entrada EPP').first().json.supervisor }}",
+              "type": "string"
+            },
+            {
+              "id": "a21376b0-a421-4914-82a2-2f6ae5b0b446",
+              "name": "imagen_nombre",
+              "value": "={{ $('Validar entrada EPP').first().json.imagen_nombre }}",
+              "type": "string"
+            },
+            {
+              "id": "9c27ccc4-f583-46c3-8ee4-23da0bec9bf5",
+              "name": "fecha_envio",
+              "value": "={{ $('Validar entrada EPP').first().json.fecha_envio }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        816,
+        32
+      ],
+      "id": "faf37fec-8734-4087-8a33-2913876e3d05",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fcc4e64d-a4bf-4e3d-bd30-e1388b1ab515",
+              "name": "informe",
+              "value": "={{ JSON.parse($json.content.parts[0].text) }}",
+              "type": "object"
+            },
+            {
+              "id": "1a5fbc39-f503-4ead-9d90-e65dcc2d4517",
+              "name": "anterior",
+              "value": "={{ $('Preparar informe Gemini').first().json }}",
+              "type": "object"
+            },
+            {
+              "id": "baef7ee3-5ba1-429a-b73b-8f2eaca52953",
+              "name": "fecha_procesamiento",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        544,
+        256
+      ],
+      "id": "0868064e-0dae-44dd-b7f2-b091fb820214",
+      "name": "Edit Fields1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Formulario": {
+      "main": [
+        [
+          {
+            "node": "Validar entrada EPP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar entrada EPP": {
+      "main": [
+        [
+          {
+            "node": "Detectar EPP con YOLO (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar EPP con YOLO (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar informe EPP con Gemini": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar informe Gemini": {
+      "main": [
+        [
+          {
+            "node": "Generar informe EPP con Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar informe final EPP": {
+      "main": [
+        [
+          {
+            "node": "Enviar alerta EPP Gmail",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar alerta EPP Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Registrar inspección en Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Preparar informe Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Validar informe final EPP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9e3106d6-dd3e-4a6c-b652-b3580b4148b1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bb8f48b1458ac7744619f08f6ebca070ef52bbd29c74038e73c2746cbd7ac12e"
+  },
+  "nodeGroups": [],
+  "id": "37aOSanlHj6h37Y2",
+  "tags": []
+}
