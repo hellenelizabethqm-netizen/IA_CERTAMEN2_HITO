@@ -1,0 +1,42 @@
+{
+    "zona_operativa": {
+        "nombre": "Zona operativa superficial con tránsito de maquinaria",
+        "contexto": "Prototipo académico de faena minera",
+        "version": "1.0",
+        "validacion_profesional": false,
+        "riesgos": [
+            {
+                "peligro": "Golpes en la cabeza o caída de objetos",
+                "epp": "helmet",
+                "justificacion": "Protección propuesta frente a riesgos de impacto en la cabeza."
+            },
+            {
+                "peligro": "Tránsito de vehículos y visibilidad",
+                "epp": "safety-vest",
+                "justificacion": "Alta visibilidad propuesta para trabajadores en zonas de circulación."
+            }
+        ],
+        "epp_requeridos": [
+            "helmet",
+            "safety-vest"
+        ],
+        "fundamento_normativo": [
+            {
+                "norma": "DS 594",
+                "articulo": "53",
+                "alcance": "EPP adecuados a los riesgos laborales"
+            },
+            {
+                "norma": "DS 44",
+                "articulo": "7 y 13",
+                "alcance": "Evaluación de riesgos y selección de EPP"
+            },
+            {
+                "norma": "DS 132",
+                "articulo": "32",
+                "alcance": "EPP según los riesgos efectivos en minería"
+            }
+        ],
+        "origen_regla_especifica": "Matriz de riesgos simplificada propuesta para el ejercicio académico"
+    }
+}
